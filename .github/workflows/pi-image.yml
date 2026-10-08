@@ -2,21 +2,33 @@ name: Pi Image
 
 # Fork-local image build for the pi-impersonation fork.
 #
-# Deliberately NOT wired to version tags: this fork ships a custom build and must
-# not claim an upstream version number. Images are published under moving
-# `pi-custom` and immutable `pi-<short-sha>` tags on GHCR.
+# Deliberately NOT wired to version tags and NOT dependent on a registry: this
+# fork ships a custom build and must not claim an upstream version number, and
+# GHCR packages of this fork are private (their visibility can only be changed
+# by a user token with packages scope, which CI does not have).
 #
-# Builds from source (root Dockerfile) on a native linux/amd64 runner, so the
-# cgo-linked libzstd used for pi's zstd level-3 request bodies is compiled for
-# the target architecture without emulation.
+# The workflow builds the image from source (root Dockerfile) on a native
+# linux/amd64 runner, so the cgo-linked libzstd used for pi's zstd level-3
+# request bodies is compiled for the target architecture without emulation, then
+# exports a docker-save tar as an artifact. Deploy by loading that tar on the
+# target host:
+#
+#   gh run download <run-id> --repo zanderzhng/sub2api -n sub2api-pi-image -D /tmp/pi-image
+#   scp /tmp/pi-image/sub2api-pi.tar zgo1:/opt/sub2api/
+#   ssh zgo1 'docker load -i /opt/sub2api/sub2api-pi.tar'
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Moving image tag to publish'
+        description: 'Image tag baked into the tar (local tag on the target host)'
         required: false
         type: string
         default: pi-custom
+      retention_days:
+        description: 'Artifact retention (days)'
+        required: false
+        type: number
+        default: 7
 
 concurrency:
   group: pi-image-${{ github.repository }}
@@ -24,7 +36,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   image:
@@ -32,13 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v3
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push linux/amd64 image
+      - name: Build linux/amd64 image into a tar
         env:
           MOVING_TAG: ${{ inputs.tag || 'pi-custom' }}
           REPO_LOWER: ${{ github.repository }}
@@ -54,41 +59,19 @@ jobs:
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --tag "${image}:${MOVING_TAG}" \
             --tag "${image}:pi-${short_sha}" \
-            --push \
+            --output "type=docker,dest=/tmp/sub2api-pi.tar" \
             .
-          echo "pushed ${image}:${MOVING_TAG} and ${image}:pi-${short_sha}" >> "$GITHUB_STEP_SUMMARY"
-      - name: Report digest
-        env:
-          MOVING_TAG: ${{ inputs.tag || 'pi-custom' }}
-          REPO_LOWER: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          image="ghcr.io/${REPO_LOWER,,}"
-          docker buildx imagetools inspect "${image}:${MOVING_TAG}" --format '{{json .Manifest}}' \
-            | tee manifest.json
-          echo "image=${image}" >> "$GITHUB_STEP_SUMMARY"
-          echo "digest=$(docker buildx imagetools inspect "${image}:${MOVING_TAG}" --format '{{.Manifest.Digest}}')" >> "$GITHUB_STEP_SUMMARY"
-      # GHCR packages default to private even for public repositories, and the
-      # deploy host pulls anonymously. The publishing workflow's own token is
-      # allowed to change the visibility, so do it here instead of asking an
-      # operator to click through profile settings.
-      - name: Make package publicly pullable
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PACKAGE: ${{ github.event.repository.name }}
-        run: |
-          set -euo pipefail
-          for attempt in 1 2 3 4 5; do
-            if curl -sS -f -X PATCH \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/user/packages/container/${PACKAGE}" \
-              -d '{"visibility":"public"}' >/dev/null; then
-              echo "visibility=public" >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "warning: could not set package visibility; pull with a token that has read:packages" >> "$GITHUB_STEP_SUMMARY"
-          exit 0
+          ls -lh /tmp/sub2api-pi.tar
+          {
+            echo "image=${image}:${MOVING_TAG}"
+            echo "immutable=${image}:pi-${short_sha}"
+            echo "revision=${GITHUB_SHA}"
+            echo "tar_bytes=$(stat -c %s /tmp/sub2api-pi.tar)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload image tar
+        uses: actions/upload-artifact@v7
+        with:
+          name: sub2api-pi-image
+          path: /tmp/sub2api-pi.tar
+          retention-days: ${{ inputs.retention_days || 7 }}
+          compression-level: 1
