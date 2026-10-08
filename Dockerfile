@@ -115,9 +115,13 @@ LABEL description="Sub2API - AI API Gateway Platform"
 LABEL org.opencontainers.image.source="https://github.com/Wei-Shaw/sub2api"
 
 # Install runtime dependencies
+# curl is required by the deployment Compose healthcheck (`curl -f .../health`);
+# the GoReleaser image ships it too, while this source-built image did not, so a
+# source build reported `unhealthy` even with a healthy server.
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
+    curl \
     su-exec \
     libpq \
     zstd-libs \
