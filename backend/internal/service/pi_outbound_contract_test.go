@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
@@ -223,20 +222,4 @@ func TestPiCompressZstdRoundTrip(t *testing.T) {
 	require.True(t, ok)
 	require.NotEqual(t, body, compressed)
 	require.Equal(t, body, decodeZstdBody(t, compressed))
-}
-
-// TestPiCompressZstdMatchesLibzstdLevel3 是 E1 的常驻回归：帧必须与
-// `zstd -3 --no-check` 逐字节一致，否则线上帧形状与真实 pi 不同。
-func TestPiCompressZstdMatchesLibzstdLevel3(t *testing.T) {
-	fixture, err := os.ReadFile("testdata/pi_zstd_level3_fixture.json")
-	if err != nil {
-		t.Skipf("fixture missing: %v", err)
-	}
-	expected, err := os.ReadFile("testdata/pi_zstd_level3_fixture.expected.zst")
-	if err != nil {
-		t.Skipf("expected frame missing: %v", err)
-	}
-	compressed, ok := PiCompressZstd(fixture)
-	require.True(t, ok)
-	require.Equal(t, expected, compressed)
 }

@@ -13,15 +13,22 @@ builds:
     main: ./cmd/server
     binary: sub2api
     flags:
-      - -tags=embed
+      # netgo/osusergo：cgo 构建时把 DNS/用户解析留在纯 Go 实现里，静态 glibc
+      # 的 getaddrinfo 在容器里不可靠。
+      - -tags=embed,netgo,osusergo
     env:
-      - CGO_ENABLED=0
+      # pi 出站伪装的请求体压缩要求与 libzstd 逐字节一致（见 backend/internal/service/
+      # pi_compress.go），故该目标启用 cgo。goreleaser 在 ubuntu（glibc）上编译，
+      # 运行镜像是 alpine（musl），因此必须静态链接。
+      - CGO_ENABLED=1
     goos:
       - linux
     goarch:
       - amd64
     ldflags:
       - -s -w
+      - -linkmode=external
+      - -extldflags=-static
       - -X main.Commit={{.Commit}}
       - -X main.Date={{.Date}}
       - -X main.BuildType=release

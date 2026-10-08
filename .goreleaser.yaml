@@ -25,6 +25,26 @@ builds:
     ignore:
       - goos: windows
         goarch: arm64
+    # pi 出站伪装的请求体压缩要求与 libzstd 逐字节一致（backend/internal/service/
+    # pi_compress.go）：交付镜像只出 linux/amd64，故只在该目标启用 cgo。
+    # goreleaser 在 ubuntu（glibc）上编译而运行镜像是 alpine（musl），
+    # 所以静态链接，并用 netgo/osusergo 把 DNS/用户解析留在纯 Go 实现里。
+    # 其余目标（darwin/windows/linux-arm64）保持 CGO_ENABLED=0，走纯 Go 的
+    # zstd 回退实现（帧头形状一致，码流不同）。
+    overrides:
+      - goos: linux
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+        flags:
+          - -tags=embed,netgo,osusergo
+        ldflags:
+          - -s -w
+          - -linkmode=external
+          - -extldflags=-static
+          - -X main.Commit={{.Commit}}
+          - -X main.Date={{.Date}}
+          - -X main.BuildType=release
     ldflags:
       - -s -w
       - -X main.Commit={{.Commit}}

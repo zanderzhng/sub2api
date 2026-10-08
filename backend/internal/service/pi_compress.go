@@ -1,3 +1,5 @@
+//go:build cgo
+
 package service
 
 import (
@@ -9,15 +11,16 @@ import (
 
 // pi 的 SSE 出站请求体压缩：zlib.zstdCompressSync(body, {level: 3})，即 libzstd level 3。
 //
-// 为什么用 cgo 绑定而不是纯 Go 的 klauspost/compress（E1 实测结论）：
-// klauspost 在 level 3 下产出的帧与 libzstd **不逐字节一致**（码块分段与熵编码不同，
-// 同样的输入 363 字节 vs 368 字节），只有帧头能对齐；帧内码流是稳定的实现指纹，
-// 这正是伪装要消除的信号。DataDog/zstd 是 libzstd 的直接绑定（C 源码进模块），
-// level 3 的输出与 `zstd -3 --no-check` 逐字节相同，
-// 见 pi_outbound_contract_test.go 的 TestPiCompressZstdMatchesLibzstdLevel3。
+// 为什么必须是 libzstd 的字节级复刻（E1 实测结论）：纯 Go 的 klauspost/compress 在
+// level 3 下能对齐帧头，但码块分段与熵编码不同（同一输入 363 字节 vs 368 字节），
+// 帧内码流本身就是一个稳定的实现指纹——这正是伪装要消除的信号。
+// DataDog/zstd 是 libzstd 的 cgo 绑定，level 3 输出与 `zstd -3 --no-check` 逐字节相同
+// （见 pi_compress_libzstd_test.go）。
 //
-// 代价：二进制由 CGO_ENABLED=0 纯 Go 交叉编译改为 CGO_ENABLED=1（见 Dockerfile 的
-// backend-builder）。运行镜像无需改动：C 代码静态链接进二进制，zstd-libs 本来就在。
+// 构建面：本文件只在 CGO_ENABLED=1 时参与编译；CGO_ENABLED=0 的交叉编译目标
+// （darwin/windows/arm64 发布产物）回退到 pi_compress_pure.go 的纯 Go 实现。
+// 交付的 linux/amd64 镜像必须走本文件：goreleaser 的该目标设 CGO_ENABLED=1
+// （见 .goreleaser.simple.yaml 与 .goreleaser.yaml 的 linux/amd64 覆写）。
 const piZstdCompressionLevel = 3
 
 // PiCompressZstd 返回 libzstd level 3 压缩后的 body。
@@ -31,3 +34,6 @@ func PiCompressZstd(body []byte) ([]byte, bool) {
 	}
 	return compressed, true
 }
+
+// piZstdImplementation 供测试与日志声明当前生效的实现（与真实 pi 的字节一致性据此判断）。
+const piZstdImplementation = "libzstd-cgo"
