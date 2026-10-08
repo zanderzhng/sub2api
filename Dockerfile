@@ -46,11 +46,13 @@ RUN pnpm run build
 # -----------------------------------------------------------------------------
 # Stage 2: Backend Builder
 # -----------------------------------------------------------------------------
-# --platform=$BUILDPLATFORM: run the Go toolchain on the native host arch and
-# cross-compile to the target arch below. The binary is CGO_ENABLED=0, so this
-# is a clean pure-Go cross-compile — no QEMU emulation of go mod download / go
-# build (emulated networking here was dropping module fetches with EOF).
-FROM --platform=${BUILDPLATFORM} ${GOLANG_IMAGE} AS backend-builder
+# NOTE: 本阶段**不再**用 --platform=$BUILDPLATFORM 交叉编译。
+# pi 出站伪装（gateway.pi_impersonation）要求请求体压缩与真实 pi 逐字节一致，
+# 因此改用 cgo 绑定 libzstd（github.com/DataDog/zstd，C 源码随模块提供），
+# 而 cgo 需要目标架构的 C 工具链：改成在目标平台上构建，用 gcc + musl-dev。
+# amd64（SIMPLE_RELEASE 唯一产物）在 amd64 runner 上是原生构建；arm64 目标
+# 会走 QEMU 模拟，模块下载仍靠下面的 cache mount 兜底。
+FROM ${GOLANG_IMAGE} AS backend-builder
 
 # Build arguments for version info (set by CI)
 ARG VERSION=
@@ -65,8 +67,8 @@ ARG TARGETARCH
 ENV GOPROXY=${GOPROXY}
 ENV GOSUMDB=${GOSUMDB}
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+# Install build dependencies (gcc + musl-dev are required for the cgo build)
+RUN apk add --no-cache git ca-certificates tzdata gcc musl-dev
 
 WORKDIR /app/backend
 
@@ -90,7 +92,7 @@ RUN --mount=type=cache,id=sub2api-gomod,target=/go/pkg/mod \
     VERSION_VALUE="${VERSION}" && \
     if [ -z "${VERSION_VALUE}" ]; then VERSION_VALUE="$(./scripts/resolve-version.sh)"; fi && \
     DATE_VALUE="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" && \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
+    CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
     -tags embed \
     -ldflags="-s -w -X main.Version=${VERSION_VALUE} -X main.Commit=${COMMIT} -X main.Date=${DATE_VALUE} -X main.BuildType=release" \
     -trimpath \

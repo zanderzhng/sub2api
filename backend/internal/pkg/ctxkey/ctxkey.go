@@ -81,4 +81,9 @@ const (
 
 	// ClaudeCodeVersion stores the extracted Claude Code version from User-Agent (e.g. "2.1.22")
 	ClaudeCodeVersion Key = "ctx_claude_code_version"
+
+	// PiPlatform 标识当前请求判定出的 pi 平台（darwin | win32），
+	// 由 gateway.pi_impersonation 启用时在 OpenAI OAuth 请求入口写入，
+	// 供账号选择（按平台挑凭据）与出站身份改写读取。
+	PiPlatform Key = "ctx_pi_platform"
 )

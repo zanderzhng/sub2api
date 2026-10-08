@@ -119,8 +119,10 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	// （client.rs build_websocket_headers 复用 build_responses_headers），
 	// 客户端未声明时补成默认形态，与 HTTP 出站保持一致。放在客户端头拷贝
 	// 之外：该头是账号/会话级属性，不依赖入站请求是否存在，也避免预热与
-	// 实际请求因头差异落进不同的连接池兼容分桶。
-	applyOpenAICodexBetaFeatures(c, account, headers)
+	// 实际请求因头差异落进不同的连接池兼容分桶。pi 模式不发任何 x-codex-*。
+	if !s.piImpersonationActiveFor(account) {
+		applyOpenAICodexBetaFeatures(c, account, headers)
+	}
 	// OAuth 账号：将 apiKeyID 混入 session 标识符，防止跨用户会话碰撞。
 	if account != nil && account.UsesOpenAICodexProtocol() {
 		apiKeyID := getAPIKeyIDFromContext(c)
@@ -177,7 +179,7 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	// 终态收口：WS 握手与 HTTP 出站共用同一套身份语义，账号级自定义 UA 同样作为
 	// 管理员显式配置传入（上面写进 headers 的值只在强制统一被关闭时才参与配对）。
 	if account != nil && account.UsesOpenAICodexProtocol() {
-		enforceCodexIdentityHeadersWithUA(headers, s.codexIdentityOverrideUA(account))
+		enforceCodexIdentityHeadersWithUA(ctx, headers, s.codexIdentityOverrideUA(account))
 	}
 
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）。

@@ -2435,6 +2435,25 @@ func (a *Account) IsTLSFingerprintEnabled() bool {
 	return false
 }
 
+// PiPlatform 返回账号的 pi 平台标签（extra.pi_platform）。
+// 空串表示未标注；非 darwin/win32 的值同样归一为空串（未标注与标注错误都按通配处理）。
+// 平台维度只用于账号选择的候选过滤：出站身份的平台来自请求 context，绝不从本标签推导，
+// 否则标签写错会把某个平台的身份发到另一个平台的凭据上。
+func (a *Account) PiPlatform() string {
+	if a == nil || a.Extra == nil {
+		return ""
+	}
+	raw, ok := a.Extra[PiPlatformExtraKey].(string)
+	if !ok {
+		return ""
+	}
+	platform, ok := NormalizePiPlatform(raw)
+	if !ok {
+		return ""
+	}
+	return string(platform)
+}
+
 // GetTLSFingerprintProfileID 获取账号绑定的 TLS 指纹模板 ID
 // 返回 0 表示未绑定（使用内置默认 profile）
 func (a *Account) GetTLSFingerprintProfileID() int64 {
