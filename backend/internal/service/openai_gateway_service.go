@@ -539,6 +539,8 @@ func NewOpenAIGatewayService(
 	// 拿不到配置，故在此发布进程级开关快照。配置取反义，零值即「强制统一出口开启」。
 	if cfg != nil {
 		SetCodexIdentityEnforcementEnabled(!cfg.Gateway.DisableCodexIdentityEnforcement)
+		// pi 出站伪装同样在收口点消费，故一并发布快照（默认关闭）。
+		SetPiImpersonationSettings(cfg.Gateway.PiImpersonation.Enabled, cfg.Gateway.PiImpersonation.DefaultPlatform)
 	}
 	svc := &OpenAIGatewayService{
 		accountRepo:         accountRepo,

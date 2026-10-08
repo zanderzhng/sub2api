@@ -392,6 +392,10 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	if account == nil {
 		return "account_nil"
 	}
+	// pi 平台门：凭据与平台必须 1:1（见 piPlatformVetoReason）。
+	if reason := piPlatformVetoReason(ctx, account); reason != "" {
+		return reason
+	}
 	// account_model composite routes publish an alias that only accounts with an
 	// explicit model mapping own. Both scheduler modes (advanced and legacy) must
 	// enforce ownership before any priority/sticky/transport consideration; a

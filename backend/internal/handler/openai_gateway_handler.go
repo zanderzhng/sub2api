@@ -590,6 +590,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// Get subscription info (may be nil)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	// pi 模式：按 UA/请求体判定平台并写入 ctx（选号与出站身份都读它）。
+	h.gatewayService.ApplyPiPlatformToRequest(c, body)
 	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
@@ -1241,6 +1243,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	// pi 模式：按 UA/请求体判定平台并写入 ctx（选号与出站身份都读它）。
+	h.gatewayService.ApplyPiPlatformToRequest(c, body)
 	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
@@ -2658,6 +2662,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	// pi 模式：WS 接入没有单份报文，平台只按握手 UA 判定（payload 平台线索不可用）。
+	h.gatewayService.ApplyPiPlatformToRequest(c, nil)
+	// 平台写在 c.Request 的 context 上，下面的 ctx 派生（inflight/guardian/pricing）与
+	// buildOpenAIWSHeaders 都从 ctx 取，必须在这里重新取值，否则平台判定被丢掉，
+	// 选号门与出站身份都会退回默认平台。
+	ctx = c.Request.Context()
 	requestPlatform := openAICompatibleRequestPlatform(ctx, apiKey)
 	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
 	if requestPlatform == service.PlatformGrok {

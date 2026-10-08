@@ -70,8 +70,13 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		turnState = strings.TrimSpace(c.GetHeader(openAIWSTurnStateHeader))
 		turnMetadata = strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader))
 	}
-	setOpenAIWSTurnMetadata(payload, turnMetadata)
-	applyStagedCodexFingerprintClientMetadata(c, account, payload)
+	if !s.piImpersonationActiveFor(account) {
+		setOpenAIWSTurnMetadata(payload, turnMetadata)
+		applyStagedCodexFingerprintClientMetadata(c, account, payload)
+	} else {
+		// pi 的 response.create 帧不带 client_metadata：下游带进来的也要删。
+		delete(payload, "client_metadata")
+	}
 	previousResponseID := openAIWSPayloadString(payload, "previous_response_id")
 	previousResponseIDKind := ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 	promptCacheKey := strings.TrimSpace(clientPromptCacheKey)

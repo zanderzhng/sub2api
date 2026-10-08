@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -26,7 +27,7 @@ func TestEnsureCodexIdentityHeaders(t *testing.T) {
 		h := make(http.Header)
 
 		ensureCodexIdentityHeaders(h)
-		enforceCodexIdentityHeaders(h)
+		enforceCodexIdentityHeaders(context.Background(), h)
 
 		require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
 		require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
@@ -41,7 +42,7 @@ func TestEnsureCodexIdentityHeaders(t *testing.T) {
 		h.Set("OpenAI-Beta", "assistants=v2")
 
 		ensureCodexIdentityHeaders(h)
-		enforceCodexIdentityHeaders(h)
+		enforceCodexIdentityHeaders(context.Background(), h)
 
 		require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
 		require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
@@ -111,7 +112,7 @@ func TestEnforceCodexIdentityHeaders(t *testing.T) {
 				h.Set("version", tt.version)
 			}
 
-			enforceCodexIdentityHeaders(h)
+			enforceCodexIdentityHeaders(context.Background(), h)
 
 			require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
 			require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
@@ -129,7 +130,7 @@ func TestEnforceCodexIdentityHeadersWithAccountOverrideUA(t *testing.T) {
 		h.Set("user-agent", "luna/1.0.0")
 		h.Set("version", "2.1.0")
 
-		enforceCodexIdentityHeadersWithUA(h, "codex_vscode/0.150.0 (Ubuntu 22.4.0; x86_64) vscode")
+		enforceCodexIdentityHeadersWithUA(context.Background(), h, "codex_vscode/0.150.0 (Ubuntu 22.4.0; x86_64) vscode")
 
 		require.Equal(t, "codex_vscode", h.Get("originator"))
 		require.Equal(t, "codex_vscode/"+codexCLIVersion+" (Ubuntu 22.4.0; x86_64) vscode", h.Get("user-agent"))
@@ -140,7 +141,7 @@ func TestEnforceCodexIdentityHeadersWithAccountOverrideUA(t *testing.T) {
 		h := make(http.Header)
 		h.Set("originator", "codex_cli_rs")
 
-		enforceCodexIdentityHeadersWithUA(h, "luna/1.0.0")
+		enforceCodexIdentityHeadersWithUA(context.Background(), h, "luna/1.0.0")
 
 		require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
 		require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
@@ -154,7 +155,7 @@ func TestEnforceCodexIdentityHeadersWithAccountOverrideUA(t *testing.T) {
 		h := make(http.Header)
 		h.Set("originator", "codex_cli_rs")
 
-		enforceCodexIdentityHeadersWithUA(h, "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color")
+		enforceCodexIdentityHeadersWithUA(context.Background(), h, "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color")
 
 		require.Equal(t, "codex_cli_rs", h.Get("originator"))
 		require.Equal(t, "codex_cli_rs/"+codexCLIVersion+" (Ubuntu 22.4.0; x86_64) xterm-256color", h.Get("user-agent"))
@@ -172,7 +173,7 @@ func TestEnforceCodexIdentityHeadersWithAccountOverrideUA(t *testing.T) {
 		h := make(http.Header)
 		h.Set("originator", "codex_cli_rs")
 
-		enforceCodexIdentityHeadersWithUA(h, "codex-tui/0.125.0 (Mac OS X 14.0; arm64) iTerm")
+		enforceCodexIdentityHeadersWithUA(context.Background(), h, "codex-tui/0.125.0 (Mac OS X 14.0; arm64) iTerm")
 
 		require.Equal(t, "codex-tui", h.Get("originator"))
 		require.Equal(t, "codex-tui/0.200.1 (Mac OS X 14.0; arm64) iTerm", h.Get("user-agent"))
@@ -193,7 +194,7 @@ func TestEnforceCodexIdentityHeadersFollowsCanonicalResolver(t *testing.T) {
 	h.Set("originator", "codex-tui")
 	h.Set("user-agent", "codex-tui/0.140.2 (Mac OS X 14.0; arm64) iTerm (codex-tui; 0.140.2)")
 
-	enforceCodexIdentityHeaders(h)
+	enforceCodexIdentityHeaders(context.Background(), h)
 
 	require.Equal(t, "codex_cli_rs", h.Get("originator"))
 	require.Equal(t, "codex_cli_rs/0.200.1 (Ubuntu 22.4.0; x86_64) xterm-256color", h.Get("user-agent"))
@@ -211,7 +212,7 @@ func TestEnforceCodexIdentityHeadersRejectsInvalidCanonicalUA(t *testing.T) {
 	h := make(http.Header)
 	h.Set("originator", "codex_cli_rs")
 
-	enforceCodexIdentityHeaders(h)
+	enforceCodexIdentityHeaders(context.Background(), h)
 
 	require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
 	require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
@@ -234,7 +235,7 @@ func TestCodexIdentityEnforcementZeroValueConfigKeepsItEnabled(t *testing.T) {
 	h.Set("originator", "codex-tui")
 	h.Set("user-agent", "codex-tui/0.140.2 (Mac OS X 14.0; arm64) iTerm (codex-tui; 0.140.2)")
 
-	enforceCodexIdentityHeaders(h)
+	enforceCodexIdentityHeaders(context.Background(), h)
 
 	require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
 	require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
@@ -253,7 +254,7 @@ func TestEnforceCodexIdentityHeaders_EnforcementDisabled(t *testing.T) {
 	h.Set("user-agent", tuiUA)
 	h.Set("version", "0.145.2")
 
-	enforceCodexIdentityHeaders(h)
+	enforceCodexIdentityHeaders(context.Background(), h)
 
 	require.Equal(t, "codex-tui", h.Get("originator"))
 	require.Equal(t, tuiUA, h.Get("user-agent"))
@@ -270,7 +271,7 @@ func TestEnforceCodexIdentityHeaders_EnforcementDisabledThirdPartyFallback(t *te
 	h.Set("user-agent", "luna/1.0.0")
 	h.Set("version", "2.1.0")
 
-	enforceCodexIdentityHeaders(h)
+	enforceCodexIdentityHeaders(context.Background(), h)
 
 	require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
 	require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
@@ -283,9 +284,9 @@ func TestEnforceCodexIdentityHeadersIsIdempotent(t *testing.T) {
 	h.Set("originator", "codex-tui")
 	h.Set("user-agent", "codex-tui/0.140.2 (Mac OS X 14.0; arm64) iTerm (codex-tui; 0.140.2)")
 
-	enforceCodexIdentityHeaders(h)
+	enforceCodexIdentityHeaders(context.Background(), h)
 	firstUA, firstVersion := h.Get("user-agent"), h.Get("version")
-	enforceCodexIdentityHeaders(h)
+	enforceCodexIdentityHeaders(context.Background(), h)
 
 	require.Equal(t, firstUA, h.Get("user-agent"))
 	require.Equal(t, firstVersion, h.Get("version"))
@@ -298,7 +299,7 @@ func TestEnforceCodexIdentityHeaders_NoOriginatorIsNoop(t *testing.T) {
 	h := make(http.Header)
 	h.Set("user-agent", "third-party-client/1.0.0")
 
-	enforceCodexIdentityHeaders(h)
+	enforceCodexIdentityHeaders(context.Background(), h)
 
 	require.Empty(t, h.Get("originator"))
 	require.Empty(t, h.Get("version"))

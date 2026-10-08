@@ -123,6 +123,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	// pi 模式：按 UA/请求体判定平台并写入 ctx（选号与出站身份都读它）。
+	h.gatewayService.ApplyPiPlatformToRequest(c, body)
 	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())

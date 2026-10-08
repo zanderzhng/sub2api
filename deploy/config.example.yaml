@@ -589,6 +589,16 @@ gateway:
     #     name: "Custom Profile 1"
     #   profile_2:
     #     name: "Custom Profile 2"
+  # pi client impersonation for OpenAI OAuth / OpenAI OAuth 出站伪装成 pi 客户端
+  # 开启后 OpenAI OAuth 出站的 originator / User-Agent / 请求体形状与压缩方式都按
+  # pi（earendil-works/pi）的线上契约改写：不发 version、不发任何 x-codex-*、
+  # 不发 client_metadata，SSE 请求体按 libzstd level 3 压缩并声明 content-encoding。
+  # 平台判定：下游 User-Agent → 请求体 <environment_context> → 下面的默认平台；
+  # 账号侧用 extra.pi_platform（darwin|win32）标注，未标注视为通配。
+  pi_impersonation:
+    enabled: false
+    # 判定不出平台时使用的平台（darwin | win32）
+    default_platform: darwin
 
 # =============================================================================
 # Logging Configuration

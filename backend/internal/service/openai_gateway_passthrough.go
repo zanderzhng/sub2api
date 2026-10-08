@@ -137,6 +137,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 ) (*OpenAIForwardResult, error) {
 	requestedModel := reqModel
 	upstreamPassthroughModel := ""
+	// piMode：本次出站按 pi 契约改写（身份、请求体形状与压缩，见 pi_identity.go）。
+	piMode := s.piImpersonationActiveFor(account)
 	if isOpenAIResponsesCompactPath(c) {
 		compactMappedModel := s.resolveOpenAICompactFallbackModel(account, reqModel)
 		if compactMappedModel != "" && compactMappedModel != reqModel {
@@ -184,7 +186,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		if scopeErr != nil {
 			return nil, scopeErr
 		}
-		if accountScoped {
+		if accountScoped && !piMode {
 			body = accountScopedBody
 		}
 
@@ -199,7 +201,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 				clientHeaders = c.Request.Header
 			}
 			fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
-			if fpIDs != nil {
+			if fpIDs != nil && !piMode {
 				fpBody, fpChanged, fpErr := applyCodexFingerprintClientMetadataRaw(body, fpIDs)
 				if fpErr != nil {
 					return nil, fpErr
@@ -582,6 +584,8 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	body []byte,
 	token string,
 ) (*http.Request, error) {
+	// piMode：本次透传出站按 pi 契约改写（与非透传路径同一套语义）。
+	piMode := s.piImpersonationActiveFor(account)
 	targetURL := openaiPlatformAPIURL
 	switch account.Type {
 	case AccountTypeOAuth:
@@ -712,7 +716,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	// 终态收口：透传路径的 OAuth 与非透传完全一致，同样强制统一出站身份
 	// （User-Agent / originator / version 同源自洽），客户端自报身份不会到达上游。
 	if account.UsesOpenAICodexProtocol() {
-		enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))
+		enforceCodexIdentityHeadersWithUA(req.Context(), req.Header, s.codexIdentityOverrideUA(account))
 	}
 
 	if req.Header.Get("content-type") == "" {
@@ -726,14 +730,25 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, body)
-	// x-codex-beta-features：按真实 Codex 的会话级行为补注（在账号级覆写之后，
-	// 保证不被覆盖丢失）。
-	applyOpenAICodexBetaFeatures(c, account, req.Header)
-	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
+	if !piMode {
+		// x-codex-beta-features：按真实 Codex 的会话级行为补注（在账号级覆写之后，
+		// 保证不被覆盖丢失）。pi 模式不发任何 x-codex-*。
+		applyOpenAICodexBetaFeatures(c, account, req.Header)
+		setOpenAICodexRoutingHintFromBody(req.Header, account, body)
+	}
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http_passthrough", req.Header, body, "not_applicable")
 
 	if err := applyMappedGPT55LiteCompatibility(req, account, body); err != nil {
 		return nil, err
+	}
+	if piMode {
+		if !isOpenAIResponsesCompactPath(c) {
+			// 与 pi 的 buildSSEHeaders 一致（见 buildUpstreamRequest 的同名分支）。
+			req.Header.Set("OpenAI-Beta", "responses=experimental")
+		}
+		if err := s.applyPiOutboundBody(req, c, account, body); err != nil {
+			return nil, err
+		}
 	}
 	return req, nil
 }

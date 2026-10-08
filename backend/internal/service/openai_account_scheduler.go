@@ -1776,6 +1776,10 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if account == nil {
 		return false, "account_nil"
 	}
+	// pi 平台门：凭据与平台必须 1:1（见 piPlatformVetoReason）。
+	if reason := piPlatformVetoReason(ctx, account); reason != "" {
+		return false, reason
+	}
 	if source, ok := CompositeRouteSourceFromContext(ctx); ok && source == CompositeRouteSourceAccount {
 		if publicModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK && !explicitModelMappingClaims(*account, publicModel) {
 			return false, "account_model_not_owned"

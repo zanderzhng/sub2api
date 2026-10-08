@@ -1114,6 +1114,9 @@ type GatewayConfig struct {
 	// TLSFingerprint: TLS指纹伪装配置
 	TLSFingerprint TLSFingerprintConfig `mapstructure:"tls_fingerprint"`
 
+	// PiImpersonation: OpenAI OAuth 出站伪装成 pi 客户端配置
+	PiImpersonation PiImpersonationConfig `mapstructure:"pi_impersonation"`
+
 	// UsageRecord: 使用量记录异步队列配置（有界队列 + 固定 worker）
 	UsageRecord GatewayUsageRecordConfig `mapstructure:"usage_record"`
 
@@ -1451,6 +1454,16 @@ type TLSFingerprintConfig struct {
 	// Profiles: 预定义的TLS指纹配置模板
 	// key 为模板名称，如 "claude_cli_v2", "chrome_120" 等
 	Profiles map[string]TLSProfileConfig `mapstructure:"profiles"`
+}
+
+// PiImpersonationConfig 把 OpenAI OAuth 出站伪装成 pi 客户端（earendil-works/pi）。
+// 开启后 OpenAI OAuth 路径的出站身份、请求体形状与压缩方式都按 pi 的线上契约改写，
+// 并按请求平台（darwin/win32）路由到对应凭据。
+type PiImpersonationConfig struct {
+	// Enabled: 是否启用 pi 出站伪装
+	Enabled bool `mapstructure:"enabled"`
+	// DefaultPlatform: UA 与请求体都判不出平台时使用的平台（darwin | win32）
+	DefaultPlatform string `mapstructure:"default_platform"`
 }
 
 // TLSProfileConfig 单个TLS指纹模板的配置
@@ -2591,6 +2604,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.user_message_queue.cleanup_interval_seconds", 60)
 
 	viper.SetDefault("gateway.tls_fingerprint.enabled", true)
+	viper.SetDefault("gateway.pi_impersonation.enabled", false)
+	viper.SetDefault("gateway.pi_impersonation.default_platform", "darwin")
 	viper.SetDefault("concurrency.ping_interval", 10)
 
 	// TokenRefresh
@@ -3546,6 +3561,13 @@ func (c *Config) Validate() error {
 			slog.Warn("gateway.openai_ws.ingress_mode_default is deprecated, treating as ctx_pool; please update to off|ctx_pool|passthrough|http_bridge", "value", mode)
 		default:
 			return fmt.Errorf("gateway.openai_ws.ingress_mode_default must be one of off|ctx_pool|passthrough|http_bridge")
+		}
+	}
+	if platform := strings.ToLower(strings.TrimSpace(c.Gateway.PiImpersonation.DefaultPlatform)); platform != "" {
+		switch platform {
+		case "darwin", "win32":
+		default:
+			return fmt.Errorf("gateway.pi_impersonation.default_platform must be one of darwin|win32")
 		}
 	}
 	if mode := strings.ToLower(strings.TrimSpace(c.Gateway.OpenAIWS.StoreDisabledConnMode)); mode != "" {

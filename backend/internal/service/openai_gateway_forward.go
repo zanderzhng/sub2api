@@ -21,6 +21,9 @@ import (
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
+	// piMode：本次请求出站是否按 pi 契约改写请求体与身份（见 pi_identity.go）。
+	// 开启时不再写 client_metadata / x-codex-*，这些是 Codex 专有形状。
+	piMode := s.piImpersonationActiveFor(account)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
 	}
@@ -536,7 +539,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			markDecodedModified()
 		}
 		// 带真实 device_id 时补齐 client_metadata 安装标识，与真实 Codex 对齐（compact 形态不同，跳过）。
-		if !isCompactRequest && applyCodexClientMetadata(decoded, account) {
+		if !isCompactRequest && !piMode && applyCodexClientMetadata(decoded, account) {
 			markDecodedModified()
 		}
 		if currentClientPromptCacheKey, ok := decoded["prompt_cache_key"].(string); ok {
@@ -545,7 +548,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		// Account namespace is orthogonal to fingerprint convergence: preserve
 		// each client's identity cardinality, but never reuse it across OAuth
 		// credentials after scheduler failover.
-		if !isCompactRequest && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c)) {
+		if !isCompactRequest && !piMode && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c)) {
 			markDecodedModified()
 		}
 		stageCodexFingerprintIDs(c, nil)
@@ -557,7 +560,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				clientHeaders = c.Request.Header
 			}
 			fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
-			if fpIDs != nil {
+			if fpIDs != nil && !piMode {
 				if applyCodexFingerprintClientMetadata(decoded, fpIDs) {
 					markDecodedModified()
 				}
@@ -1376,6 +1379,8 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
+	// piMode：本次出站按 pi 契约改写（身份收口见 enforceCodexIdentityHeadersWithUA）。
+	piMode := s.piImpersonationActiveFor(account)
 	// Determine target URL based on account type
 	var targetURL string
 	switch account.Type {
@@ -1511,7 +1516,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 终态收口：强制统一 OAuth 出站身份（User-Agent / originator / version 同源自洽）。
 	// 客户端自报身份不参与构造，浏览器型 UA 也因此不会再到达上游（原浏览器 UA 兜底已被吸收）。
 	if account.UsesOpenAICodexProtocol() {
-		enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))
+		enforceCodexIdentityHeadersWithUA(req.Context(), req.Header, s.codexIdentityOverrideUA(account))
 	}
 
 	// Ensure required headers exist
@@ -1526,14 +1531,28 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, body, openCodeSessionHintBody(promptCacheKey))
-	// x-codex-beta-features：按真实 Codex 的会话级行为补注（在账号级覆写之后，
-	// 保证不被覆盖丢失）。
-	applyOpenAICodexBetaFeatures(c, account, req.Header)
-	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
+	if !piMode {
+		// x-codex-beta-features：按真实 Codex 的会话级行为补注（在账号级覆写之后，
+		// 保证不被覆盖丢失）。pi 模式不发任何 x-codex-*。
+		applyOpenAICodexBetaFeatures(c, account, req.Header)
+		setOpenAICodexRoutingHintFromBody(req.Header, account, body)
+	}
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http", req.Header, body, "not_applicable")
 
 	if err := applyMappedGPT55LiteCompatibility(req, account, body); err != nil {
 		return nil, err
+	}
+	if piMode {
+		if !isOpenAIResponsesCompactPath(c) {
+			// 真实 pi 的 SSE 面固定声明 OpenAI-Beta: responses=experimental
+			// （openai-codex-responses.ts 的 buildSSEHeaders）。非透传路径前面为避免
+			// 合成 legacy beta 会把该 token 剥掉，pi 模式必须放回来，否则出站头与 pi 不一致。
+			req.Header.Set("OpenAI-Beta", "responses=experimental")
+		}
+		// pi 契约收尾：字段集/键序换成 pi 的，SSE 面再压缩并声明 content-encoding。
+		if err := s.applyPiOutboundBody(req, c, account, body); err != nil {
+			return nil, err
+		}
 	}
 	return req, nil
 }

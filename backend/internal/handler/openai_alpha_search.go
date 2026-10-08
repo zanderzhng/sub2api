@@ -135,6 +135,8 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 	//（记录路径经 service.OpenAIPricingAtFromContext 从请求 ctx 回读）。
 	asPricingCtx, _ := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
 	c.Request = c.Request.WithContext(asPricingCtx)
+	// pi 模式：按 UA/请求体判定平台并写入 ctx（选号与出站身份都读它）。
+	h.gatewayService.ApplyPiPlatformToRequest(c, body)
 
 	for {
 		selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(

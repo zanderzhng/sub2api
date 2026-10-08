@@ -1045,6 +1045,9 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		service.UpstreamBillingProbeExtraKey,
 		service.GrokMediaEligibleExtraKey,
 		"grok_billing_snapshot",
+		// pi 平台标签必须进投影：pi 模式的候选过滤（listSchedulableAccounts）读的
+		// 是本投影，裁掉它所有账号都会退化成通配，平台与凭据的 1:1 就不成立。
+		service.PiPlatformExtraKey,
 	}
 	filtered := make(map[string]any)
 	for _, key := range keys {

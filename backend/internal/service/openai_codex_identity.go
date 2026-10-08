@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"net/http"
 	"regexp"
 	"strings"
@@ -201,8 +202,8 @@ func applyOpenAICodexProbeHeaders(h http.Header) {
 
 // enforceCodexIdentityHeaders 收口 OAuth（ChatGPT 内部接口）出站请求的客户端身份头。
 // 见 enforceCodexIdentityHeadersWithUA；无账号级自定义 User-Agent 时使用本函数。
-func enforceCodexIdentityHeaders(h http.Header) {
-	enforceCodexIdentityHeadersWithUA(h, "")
+func enforceCodexIdentityHeaders(ctx context.Context, h http.Header) {
+	enforceCodexIdentityHeadersWithUA(ctx, h, "")
 }
 
 // enforceCodexIdentityHeadersWithUA 强制统一 OAuth 出站身份：User-Agent / originator / version
@@ -219,8 +220,14 @@ func enforceCodexIdentityHeaders(h http.Header) {
 // 仅对携带 originator 的请求生效：compat 桥接等非 ChatGPT 内部接口路径会显式删除 originator，
 // 不应被补回。需要从缺失身份头恢复的调用方应先调用 ensureCodexIdentityHeaders。
 // 必须在所有 User-Agent 改写之后调用。
-func enforceCodexIdentityHeadersWithUA(h http.Header, overrideUA string) {
+//
+// ctx 只用于读取请求平台：gateway.pi_impersonation.enabled 打开时，身份整体改用 pi
+// （见 ApplyPiOutboundIdentity），规范 Codex 身份与账号级覆写 UA 都不再参与构造。
+func enforceCodexIdentityHeadersWithUA(ctx context.Context, h http.Header, overrideUA string) {
 	if h == nil || h.Get("originator") == "" {
+		return
+	}
+	if ApplyPiOutboundIdentity(ctx, h) {
 		return
 	}
 	if !codexIdentityEnforcement.Load() {
@@ -235,6 +242,7 @@ func enforceCodexIdentityHeadersWithUA(h http.Header, overrideUA string) {
 
 // pairCodexIdentityHeaders 是关闭强制统一后的兜底收口：保留客户端真实身份，
 // 仅保证 originator 与最终 User-Agent 首段配套、version 不低于上游门槛（issue #3901）。
+// pi 模式在 enforceCodexIdentityHeadersWithUA 里已提前返回，不进入本函数。
 func pairCodexIdentityHeaders(h http.Header) {
 	originator, pairedUA, ok := openai.PairCodexClientIdentity(h.Get("user-agent"))
 	if !ok {
