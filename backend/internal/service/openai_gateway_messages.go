@@ -399,7 +399,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if account.UsesOpenAICodexProtocol() && promptCacheKey != "" && strings.TrimSpace(c.GetHeader("conversation_id")) == "" {
 		upstreamReq.Header.Del("conversation_id")
 	}
-	if compatTurnState != "" && upstreamReq.Header.Get("x-codex-turn-state") == "" {
+	if compatTurnState != "" && upstreamReq.Header.Get("x-codex-turn-state") == "" && !s.piImpersonationActiveFor(account) {
 		upstreamReq.Header.Set("x-codex-turn-state", compatTurnState)
 	}
 

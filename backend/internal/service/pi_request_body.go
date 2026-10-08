@@ -63,6 +63,12 @@ type piRequestBody struct {
 // parallel_tool_calls=true；instructions 缺省为 "You are a helpful assistant."，
 // text.verbosity 缺省 low，tool_choice 缺省 auto。
 // input 原样透传：条目内部形状由下游客户端产生，不属于本次伪装范围。
+//
+// 重要语义：pi 的 SSE builder 从不发送 previous_response_id（pi 客户端在本地保留完整
+// 上下文，每个回合都把 transcript 放进 input），因此这里也不输出该字段。凡是依赖
+// previous_response_id 续接、而不自带完整 transcript 的下游请求，在 pi 模式下都会
+// 变成一次新的响应——这是「出站与 pi 一致」的必然代价，不是缺陷。
+// 会话连续性由 sub2api 自己的 session_id / conversation_id（已隔离）保证。
 func BuildPiRequestBody(body []byte) ([]byte, error) {
 	decoded := map[string]any{}
 	if err := decodeOpenAIJSONUseNumber(body, &decoded); err != nil {
@@ -171,16 +177,20 @@ func piReasoningValue(value any) *piReasoning {
 // 同时记录 (account_id, pi_platform)：平台与凭据的 1:1 不变式靠这条日志巡检
 // （按账号聚合 distinct pi_platform 必须恒为 1），因此是 Info 级。
 func (s *OpenAIGatewayService) applyPiOutboundBody(req *http.Request, c *gin.Context, account *Account, body []byte) error {
+	// /responses/compact 是 unary JSON 端点，pi 从不调用它，且它的请求体由
+	// normalizeOpenAICompactRequestBody 收敛过：上游对 compact 会拒绝 tool_choice 等字段
+	// （400 unknown_parameter）。因此这里只保留 pi 身份，请求体与压缩都不动。
+	if isOpenAIResponsesCompactPath(c) {
+		return nil
+	}
 	reshaped, err := BuildPiRequestBody(body)
 	if err != nil {
 		return err
 	}
 	content := reshaped
-	if !isOpenAIResponsesCompactPath(c) {
-		if compressed, ok := PiCompressZstd(reshaped); ok {
-			content = compressed
-			req.Header.Set("content-encoding", "zstd")
-		}
+	if compressed, ok := PiCompressZstd(reshaped); ok {
+		content = compressed
+		req.Header.Set("content-encoding", "zstd")
 	}
 	req.Body = io.NopCloser(bytes.NewReader(content))
 	req.ContentLength = int64(len(content))

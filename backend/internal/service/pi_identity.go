@@ -290,6 +290,11 @@ func PiRequestPlatform(ctx context.Context) PiPlatform {
 
 // ApplyPiOutboundIdentity 在 pi 模式启用时把出站头改写为 pi 的身份，返回是否已改写。
 // 顺序固定：先写 originator 与 User-Agent，再删 Codex 专有头（version / x-codex-*）。
+//
+// 只改身份、不改请求体：请求体形状由 SSE 出站构造器单独处理（applyPiOutboundBody）。
+// pi 不调用的 unary 端点（/responses/compact、模型列表、用量探针等）因此保持自己的
+// 原生请求体 + pi 身份——这是「OpenAI OAuth 出站整体表现为 pi」的有意取舍，
+// 而不是把 unary 端点改成流式（那会直接把它们弄坏）。
 func ApplyPiOutboundIdentity(ctx context.Context, h http.Header) bool {
 	if h == nil || !PiImpersonationEnabled() {
 		return false
@@ -369,6 +374,7 @@ func (s *OpenAIGatewayService) ApplyPiPlatformToRequest(c *gin.Context, body []b
 
 // piImpersonationActiveFor 报告本次出站是否要走 pi 契约：pi 模式开启，且账号确实在走
 // ChatGPT 内部接口的 OpenAI 路径（写 pi 身份与请求体到非 Codex 协议上游没有意义）。
+// 调用方还需与 piIdentityDisabledFromContext 相与，见 buildUpstreamRequest。
 func (s *OpenAIGatewayService) piImpersonationActiveFor(account *Account) bool {
 	return s.piImpersonationEnabled() && account != nil &&
 		account.Platform == PlatformOpenAI && account.UsesOpenAICodexProtocol()

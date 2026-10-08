@@ -468,6 +468,16 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 		normalized = policyApplied
 		ingressSessionOriginalModel = originalModel
+		if s.piImpersonationActiveFor(account) {
+			// pi 的 WS 帧里没有 client_metadata（pi 的请求体 builder 不产出该键）：
+			// 下游客户端自带的值也必须删掉，否则会在 pi 形状的握手下把 Codex 元数据
+			// 透给上游。
+			stripped, stripErr := sjson.DeleteBytes(normalized, "client_metadata")
+			if stripErr != nil {
+				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", stripErr)
+			}
+			normalized = stripped
+		}
 
 		return openAIWSClientPayload{
 			payloadRaw:               normalized,
